@@ -9,14 +9,16 @@ services:
       - TZ=Asia/Dubai
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - WEBHOOK_URL=https://${NGROK_DOMAIN}/
+      - N8N_RESTRICT_FILE_ACCESS_TO=/data/knowledge
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./knowledge:/data/knowledge:ro
     restart: unless-stopped
 
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ngrok-realestate
-    command:  http --url=https://${NGROK_DOMAIN} --log=stdout n8n:5678
+    command: http n8n:5678
     ports:
       - "127.0.0.1:4040:4040"
     environment:
