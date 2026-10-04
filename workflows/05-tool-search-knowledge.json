@@ -1,0 +1,138 @@
+{
+  "name": "05-tool-search-knowledge",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "question"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "31400aea-9f86-4f3c-be6c-8ffee020c621",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"models/gemini-embedding-001\", content: { parts: [{ text: $json.question }] }, taskType: \"RETRIEVAL_QUERY\" }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        176,
+        -96
+      ],
+      "id": "b6b92d04-379d-4a8c-bb15-3ba7f66ba6ef",
+      "name": "Embed question",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3mngNAotgWlGmBrR",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT json_agg(r ORDER BY r.similarity DESC) AS results\nFROM (\n  SELECT metadata->>'doc_title' AS doc_title,\n         metadata->>'section' AS section,\n         text,\n         round((1 - (embedding <=> $1::vector))::numeric, 3) AS similarity\n  FROM knowledge_chunks\n  ORDER BY embedding <=> $1::vector\n  LIMIT 4\n) r;",
+        "options": {
+          "queryReplacement": "={{ [ '[' + $json.embedding.values.join(',') + ']' ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        400,
+        -96
+      ],
+      "id": "24cbfd4f-efeb-4bd6-a456-8dcb274113cf",
+      "name": "Search knowledge",
+      "credentials": {
+        "postgres": {
+          "id": "gODiF9cfszaS69lo",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const FLOOR = 0.55;\n\nlet results = $json.results;\nif (typeof results === 'string') results = JSON.parse(results);\n\nconst good = (results || []).filter((r) => Number(r.similarity) >= FLOOR);\n\nif (good.length === 0) {\n  return { json: { result: 'NO_RELEVANT_INFORMATION_FOUND' } };\n}\n\nconst text = good\n  .map((r, i) => `[Source ${i + 1}: ${r.doc_title} / ${r.section}]\\n${r.text}`)\n  .join('\\n\\n---\\n\\n');\n\nreturn { json: { result: text } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "bf9d5e98-8909-4242-936b-c51c4de49c9c",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Embed question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed question": {
+      "main": [
+        [
+          {
+            "node": "Search knowledge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search knowledge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b6bc1b4d-dd99-4a67-b8b2-ef8b40199612",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
+  },
+  "nodeGroups": [],
+  "id": "m9dwzASFrfgBW8fi",
+  "tags": []
+}
