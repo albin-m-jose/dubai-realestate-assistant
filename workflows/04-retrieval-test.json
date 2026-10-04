@@ -1,0 +1,203 @@
+{
+  "name": "04-retrieval-test",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        -48
+      ],
+      "id": "e00eeaf8-9024-4a1e-a40f-0b2740d9febe",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const q = $('Test questions').item.json;\nconst v = $json.embedding.values;\n\nif (v.length !== 3072) {\n  throw new Error(`Expected 3072 numbers, got ${v.length}`);\n}\n\nreturn {\n  json: {\n    question: q.question,\n    accept: q.accept,\n    embedding: '[' + v.join(',') + ']'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -112
+      ],
+      "id": "86885706-9206-428b-8de8-b6f8056edfa6",
+      "name": "Format vector"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT json_agg(r ORDER BY r.similarity DESC) AS results\nFROM (\n  SELECT metadata->>'source' AS source,\n         metadata->>'section' AS section,\n         round((1 - (embedding <=> $1::vector))::numeric, 3) AS similarity\n  FROM knowledge_chunks\n  ORDER BY embedding <=> $1::vector\n  LIMIT 3\n) r;",
+        "options": {
+          "queryReplacement": "={{ [ $json.embedding ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        48,
+        16
+      ],
+      "id": "4243f3db-b161-4c1d-8493-88f6a38c6cd2",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "gODiF9cfszaS69lo",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const q = $('Format vector').item.json;\nlet results = $json.results;\nif (typeof results === 'string') results = JSON.parse(results);\n\nconst isMatch = (r) => q.accept.some((a) => {\n  const [file, sec] = a.split('|');\n  return r.source.startsWith(file) && r.section.toLowerCase().includes(sec);\n});\n\nconst outOfScope = q.accept.length === 0;\nconst rank = outOfScope ? null : results.findIndex(isMatch) + 1;\n\nreturn {\n  json: {\n    question: q.question,\n    type: outOfScope ? 'out_of_scope' : 'in_scope',\n    hit_top3: outOfScope ? null : rank > 0,\n    rank: rank,\n    top1_similarity: results[0].similarity,\n    retrieved: results\n      .map((r) => `${r.source.slice(0, 2)} > ${r.section} (${r.similarity})`)\n      .join(' | ')\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -96
+      ],
+      "id": "31e01f4a-dd84-4b7f-84a5-7cdd697be243",
+      "name": "Score result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((i) => i.json);\nconst inScope = rows.filter((r) => r.type === 'in_scope');\nconst oos = rows.filter((r) => r.type === 'out_of_scope');\n\nconst top3 = inScope.filter((r) => r.hit_top3).length;\nconst top1 = inScope.filter((r) => r.rank === 1).length;\nconst sims = (arr) => arr.map((r) => Number(r.top1_similarity));\nconst goodSims = sims(inScope.filter((r) => r.rank === 1));\n\nreturn [{\n  json: {\n    in_scope_total: inScope.length,\n    top3_rate: Math.round((100 * top3) / inScope.length) + '%',\n    top1_rate: Math.round((100 * top1) / inScope.length) + '%',\n    misses: inScope.filter((r) => !r.hit_top3).map((r) => r.question),\n    in_scope_top1_similarity_min: Math.min(...goodSims),\n    out_of_scope_max_similarity: Math.max(...sims(oos)),\n    out_of_scope: oos.map((r) => `${r.question} -> ${r.top1_similarity}`)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        48
+      ],
+      "id": "010cb886-45ed-40ad-b5ba-dda97a46166c",
+      "name": "Summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tests = [\n  { question: \"how much commission do i pay when buying a resale apartment\", accept: [\"01|fees\"] },\n  { question: \"do i pay agency fee for off plan\", accept: [\"01|fees\", \"04|costs and fees\"] },\n  { question: \"are you open on sundays\", accept: [\"01|office hours\"] },\n  { question: \"can i book a viewing in this chat\", accept: [\"01|property viewings\"] },\n  { question: \"what id do i need for a viewing\", accept: [\"01|property viewings\"] },\n  { question: \"can foreigners buy property in dubai\", accept: [\"02|who can buy\"] },\n  { question: \"what is form f\", accept: [\"02|form f\"] },\n  { question: \"what extra costs come on top of the price when buying\", accept: [\"02|costs on top\"] },\n  { question: \"how much down payment do i need for a mortgage as an expat\", accept: [\"02|paying cash or taking a mortgage\", \"04|mortgages\"] },\n  { question: \"how long does it take to buy a property with a mortgage\", accept: [\"02|how long\"] },\n  { question: \"what is ejari\", accept: [\"03|tenancy contract and ejari\"] },\n  { question: \"how much is the security deposit for renting\", accept: [\"03|costs when renting\"] },\n  { question: \"how many cheques can i pay the rent in\", accept: [\"03|how rent is paid\"] },\n  { question: \"can my landlord raise the rent\", accept: [\"03|renewing\"] },\n  { question: \"what is the difference between off plan and ready property\", accept: [\"04|what off-plan and ready\"] },\n  { question: \"what is a post handover payment plan\", accept: [\"04|illustrative off-plan payment plans\"] },\n  { question: \"is my money safe when i buy off plan\", accept: [\"04|registration and escrow\"] },\n  { question: \"how far is dubai marina from the airport\", accept: [\"05|typical commute\"] },\n  { question: \"how much does a 1 bedroom cost to rent in dubai marina\", accept: [\"05|illustrative rents\"] },\n  { question: \"is there a metro in jlt\", accept: [\"06|getting around jlt\"] },\n  { question: \"what is the difference between jlt and dubai marina\", accept: [\"06|jlt compared with dubai marina\"] },  { question: \"whats the cheapest way to start renting, what do i pay on day one\", accept: [\"03|costs when renting\"] },\n  { question: \"im in india, can i purchase a flat there\", accept: [\"02|who can buy\"] },\n  { question: \"what happens if the developer is late finishing the building\", accept: [\"04|time, risks\"] },\n  { question: \"which is cheaper to live in, marina or jlt\", accept: [\"06|jlt compared with dubai marina\"] },\n  { question: \"how much are the building fees per sq ft in the marina\", accept: [\"05|service charges\"] },\n  { question: \"is it easy to park in jlt\", accept: [\"06|getting around jlt\"] },\n  { question: \"what do i need to bring to sign the rental contract\", accept: [\"03|documents tenants\"] },\n  { question: \"i want to negotiate the price\", accept: [\"01|when the marina crest ai assistant hands over\", \"01|what marina crest properties and its ai assistant can and cannot do\"] },\n  { question: \"how does it work with you guys\", accept: [\"01|how to start\"] },\n  { question: \"is dubai marina noisy at night\", accept: [\"05|lifestyle\", \"05|pros, cons\"] },\n  { question: \"can i sell my off plan unit before its built\", accept: [\"04|time, risks\"] },\n  { question: \"كم عمولة الإيجار\", accept: [\"01|fees\", \"03|costs when renting\", \"03|how marina crest properties helps tenants\"] },\n    { question: \"whats the weather in dubai today\", accept: [] },\n  { question: \"can you recommend a good restaurant\", accept: [] },\n  { question: \"how do i bake a cake\", accept: [] },\n  { question: \"what is the capital of france\", accept: [] },\n  { question: \"do you do property valuations\", accept: [] },\n  { question: \"what is your agents phone number\", accept: [] },\n  { question: \"tell me about villas in arabian ranches\", accept: [] },\n  { question: \"what is the stock price of emaar\", accept: [] },\n  { question: \"can you help me get a golden visa\", accept: [\"01|when the marina crest ai assistant hands over\", \"01|what marina crest properties and its ai assistant can and cannot do\", \"02|how marina crest\"] }\n];\n\nreturn tests.map(t => ({ json: t }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        -160
+      ],
+      "id": "f83a7fd8-6d00-4d2c-b0a4-2fcc66b736d5",
+      "name": "Test questions"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"models/gemini-embedding-001\", content: { parts: [{ text: $json.question }] }, taskType: \"RETRIEVAL_QUERY\" }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -256,
+        -128
+      ],
+      "id": "caa60342-64fc-412b-b9f3-9f6a1bdfc367",
+      "name": "Embed question",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3mngNAotgWlGmBrR",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Test questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format vector": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Score result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score result": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test questions": {
+      "main": [
+        [
+          {
+            "node": "Embed question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed question": {
+      "main": [
+        [
+          {
+            "node": "Format vector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "550a3e11-4764-4ce5-aa00-d9f60318d68d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
+  },
+  "nodeGroups": [],
+  "id": "4aXgQvXppoY59hUP",
+  "tags": []
+}

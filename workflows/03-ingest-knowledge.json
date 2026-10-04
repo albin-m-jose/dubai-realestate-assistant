@@ -1,0 +1,179 @@
+{
+  "name": "03-ingest-knowledge",
+  "nodes": [
+    {
+      "parameters": {
+        "fileSelector": "/data/knowledge/0*.md",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        112,
+        -80
+      ],
+      "id": "b99b6645-65dc-44d6-8aa6-297cc05125fb",
+      "name": "Read knowledge files"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        -128
+      ],
+      "id": "72f6f403-ea2b-4e72-aeba-0d13996c9656",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst out = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const text = buf.toString('utf8').replace(/\\r\\n/g, '\\n');\n  const fileName = items[i].binary.data.fileName;\n\n  const titleMatch = text.match(/^# (.+)$/m);\n  const docTitle = titleMatch ? titleMatch[1].trim() : fileName;\n\n  // split on \"## \" headings; the first piece is the title/header lines, so drop it\n  const sections = text.split(/^## /m).slice(1);\n\n  sections.forEach((section, idx) => {\n    const newline = section.indexOf('\\n');\n    const heading = section.slice(0, newline).trim();\n    const body = section.slice(newline + 1).trim();\n\n    // the question list is kept for testing later, not stored as a searchable chunk\n    if (heading.toLowerCase().startsWith('questions this document answers')) return;\n\n    out.push({\n      json: {\n        text: `${docTitle} - ${heading}\\n\\n${body}`,\n        metadata: {\n          source: fileName,\n          doc_title: docTitle,\n          section: heading,\n          chunk_index: idx,\n          synthetic: true\n        }\n      }\n    });\n  });\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -128
+      ],
+      "id": "cc70e7e3-d597-492d-a118-0a5a14d2ed7b",
+      "name": "Split into chunks"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"models/gemini-embedding-001\", content: { parts: [{ text: $json.text }] }, taskType: \"RETRIEVAL_DOCUMENT\", title: $json.metadata.section }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        512,
+        -64
+      ],
+      "id": "0b15652b-14d1-4aaa-baed-fdae3fb21569",
+      "name": "Embed chunk",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3mngNAotgWlGmBrR",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const chunk = $('Split into chunks').item.json;\nconst values = $json.embedding.values;\n\nif (values.length !== 3072) {\n  throw new Error(`Expected 3072 numbers, got ${values.length}`);\n}\n\nreturn {\n  json: {\n    text: chunk.text,\n    metadata: chunk.metadata,\n    embedding: '[' + values.join(',') + ']'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -160
+      ],
+      "id": "f6de1827-4922-451e-8321-74bd52d6d0e1",
+      "name": "Prepare row"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO knowledge_chunks (text, metadata, embedding)\nVALUES ($1, $2::jsonb, $3::vector)\nON CONFLICT ((metadata->>'source'), (metadata->>'section'))\nDO UPDATE SET text = EXCLUDED.text,\n              metadata = EXCLUDED.metadata,\n              embedding = EXCLUDED.embedding;",
+        "options": {
+          "queryReplacement": "={{ [ $json.text, JSON.stringify($json.metadata), $json.embedding ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        896,
+        -32
+      ],
+      "id": "65c75b69-d011-4a15-a3a4-2d1d9efd5428",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "gODiF9cfszaS69lo",
+          "name": "supabase-postgres"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read knowledge files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read knowledge files": {
+      "main": [
+        [
+          {
+            "node": "Split into chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into chunks": {
+      "main": [
+        [
+          {
+            "node": "Embed chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed chunk": {
+      "main": [
+        [
+          {
+            "node": "Prepare row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare row": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "09539a02-2685-4dd8-aeae-70d075ae35e0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
+  },
+  "nodeGroups": [],
+  "id": "FEHBqqJzY0zBR657",
+  "tags": []
+}
