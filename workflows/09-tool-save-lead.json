@@ -1,0 +1,323 @@
+{
+  "name": "09-tool-save-lead",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "chat_id"
+            },
+            {
+              "name": "first_name"
+            },
+            {
+              "name": "intent"
+            },
+            {
+              "name": "budget_aed"
+            },
+            {
+              "name": "preferred_areas"
+            },
+            {
+              "name": "bedrooms"
+            },
+            {
+              "name": "timeline"
+            },
+            {
+              "name": "financing"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -480,
+        0
+      ],
+      "id": "0034d1c6-593f-4eeb-8f18-a5b5c4fee2e8",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d8c981c9-d725-4d7d-b9fb-20d40a5cb12f",
+              "leftValue": "={{ $json.is_new }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -16,
+        -64
+      ],
+      "id": "7ca7ebe0-319f-4315-ba33-8c738f45b754",
+      "name": "Is new customer?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('When Executed by Another Workflow').first().json;\nconst row = $input.first().json;\n\nconst BLANK = ['', 'unknown', 'n/a', 'na', 'none', 'null', 'not provided', 'not specified'];\nconst clean = (v) => {\n  if (v === undefined || v === null) return '';\n  const s = String(v).trim();\n  return BLANK.includes(s.toLowerCase()) ? '' : s;\n};\n\nconst incoming = {\n  intent: clean(input.intent).toLowerCase(),\n  budget_aed: clean(input.budget_aed).replace(/[^0-9.]/g, ''),\n  preferred_areas: clean(input.preferred_areas),\n  bedrooms: clean(input.bedrooms),\n  timeline: clean(input.timeline),\n  financing: clean(input.financing),\n};\n\nconst old = row.details ? (typeof row.details === 'string' ? JSON.parse(row.details) : row.details) : {};\nconst details = { ...old };\nfor (const [k, v] of Object.entries(incoming)) {\n  if (v) details[k] = v;\n}\n\nconst WEIGHTS = details.intent === 'rent'\n  ? { budget_aed: 35, timeline: 30, preferred_areas: 20, bedrooms: 15 }\n  : { budget_aed: 30, timeline: 25, financing: 20, preferred_areas: 15, bedrooms: 10 };\n\nlet score = 0;\nconst missing = [];\nif (!details.intent) missing.push('intent');\nfor (const [k, w] of Object.entries(WEIGHTS)) {\n  if (details[k]) score += w; else missing.push(k);\n}\n\nconst isNew = !row.contact_id;\nconst properties = { ...details, telegram_chat_id: String(input.chat_id), lead_score: score };\nif (isNew) {\n  properties.firstname = clean(input.first_name) || 'Telegram customer';\n  properties.bot_status = 'active';\n}\n\nreturn [{ json: {\n  chat_id: String(input.chat_id),\n  is_new: isNew,\n  contact_id: row.contact_id,\n  details,\n  properties,\n  score,\n  missing\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        64
+      ],
+      "id": "ebf1b0ee-e50e-42f9-828c-f37bb00a7dd1",
+      "name": "Prepare update"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.hubspot_contact_id AS contact_id, c.details AS details\nFROM (SELECT $1::bigint AS cid) q\nLEFT JOIN customers c ON c.chat_id = q.cid;",
+        "options": {
+          "queryReplacement": "={{ [ $json.chat_id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -288,
+        -112
+      ],
+      "id": "16828829-0b35-4ccc-9685-b8eb2f9e4f4d",
+      "name": "Lookup customer",
+      "credentials": {
+        "postgres": {
+          "id": "gODiF9cfszaS69lo",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "={{ JSON.stringify({ properties: $json.properties }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        208,
+        -192
+      ],
+      "id": "c4ce3b04-307a-494b-8495-cb5306ca8971",
+      "name": "Create contact",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "JM0cRje4wiDiLnnY",
+          "name": "hubspot-bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/contacts/{{ $json.contact_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: $json.properties }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        16
+      ],
+      "id": "26f8d8a9-ad24-424c-8b76-c33dc59ccccc",
+      "name": "Update contact",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "JM0cRje4wiDiLnnY",
+          "name": "hubspot-bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO customers (chat_id, hubspot_contact_id, details)\nVALUES ($1::bigint, $2, $3::jsonb)\nON CONFLICT (chat_id) DO UPDATE\nSET hubspot_contact_id = EXCLUDED.hubspot_contact_id,\n    details = EXCLUDED.details,\n    updated_at = now();",
+        "options": {
+          "queryReplacement": "={{ [ $('Prepare update').first().json.chat_id, $json.id, JSON.stringify($('Prepare update').first().json.details) ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        448,
+        -128
+      ],
+      "id": "fca1f59c-2b4f-4381-b803-df13eb8ea0de",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "gODiF9cfszaS69lo",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Prepare update').first().json;\nconst labels = {\n  intent: 'whether they want to buy, rent or invest',\n  budget_aed: 'maximum budget in AED',\n  timeline: 'timeline',\n  financing: 'financing (cash or mortgage)',\n  preferred_areas: 'preferred areas',\n  bedrooms: 'number of bedrooms'\n};\nconst missing = p.missing.map((k) => labels[k]);\n\nconst result = missing.length === 0\n  ? 'Saved. All details are collected. Tell the customer an agent will follow up.'\n  : `Saved. Still missing: ${missing.join(', ')}. Ask for ONE of these next, only if it fits the conversation.`;\n\nreturn [{ json: { result } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -128
+      ],
+      "id": "61ca0cde-1369-4792-be38-01640b72293f",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "chat_id": "999000222",
+          "first_name": "Test",
+          "intent": "rent",
+          "budget_aed": "90000",
+          "preferred_areas": "Dubai Marina",
+          "bedrooms": "1",
+          "timeline": "next month",
+          "financing": ""
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Lookup customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare update": {
+      "main": [
+        [
+          {
+            "node": "Is new customer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup customer": {
+      "main": [
+        [
+          {
+            "node": "Prepare update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is new customer?": {
+      "main": [
+        [
+          {
+            "node": "Create contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create contact": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update contact": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "17c86f6b-13d1-4d98-ae65-42fcf1a2b895",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
+  },
+  "nodeGroups": [],
+  "id": "lS4FdIMcFrCAcihB",
+  "tags": []
+}

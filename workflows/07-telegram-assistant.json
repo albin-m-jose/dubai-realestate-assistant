@@ -215,7 +215,7 @@
       "typeVersion": 2.2,
       "position": [
         320,
-        0
+        128
       ],
       "id": "a893d07d-4e04-48ea-901a-68a6b308d313",
       "name": "Call '05-tool-search-knowledge'"
@@ -359,6 +359,124 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "description": "Saves what the customer has told you about what they are looking for into the CRM. Call it whenever the customer states any new detail: whether they want to buy, rent or invest, their maximum budget in AED, preferred areas, number of bedrooms, timeline, or financing. Provide ONLY details the customer actually stated, and leave the other fields empty.\n\nQUALIFYING AND SAVING CUSTOMER DETAILS\n- When a customer wants to buy, rent or invest, help them and naturally learn these details, one question at a time, never like a form: whether they want to buy, rent or invest; maximum budget in AED; preferred areas; number of bedrooms; timeline; and, for buyers only, cash or mortgage.\n- Whenever the customer gives any new detail, call the save_lead tool with ONLY the details they actually stated. Leave all other fields empty. Never guess.\n- The tool replies with what is still missing. Next, ask for ONE missing detail, only if it fits the conversation. Do not ask again for details the customer has declined to give. If the customer only has a general question, answer it first.\n- Never mention the tool, the CRM, scores or saving. If asked whether you store their information, say their requirements are shared with the Marina Crest team so an agent can help.\n- If the save_lead tool fails, carry on normally and do not mention it.",
+        "workflowId": {
+          "__rl": true,
+          "value": "lS4FdIMcFrCAcihB",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/lS4FdIMcFrCAcihB",
+          "cachedResultName": "09-tool-save-lead"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+            "first_name": "={{ $('Telegram Trigger').first().json.message.from.first_name }}",
+            "intent": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('intent', ``, 'string') }}",
+            "budget_aed": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('budget_aed', ``, 'string') }}",
+            "preferred_areas": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('preferred_areas', ``, 'string') }}",
+            "bedrooms": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('bedrooms', ``, 'string') }}",
+            "timeline": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('timeline', ``, 'string') }}",
+            "financing": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('financing', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "first_name",
+              "displayName": "first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "budget_aed",
+              "displayName": "budget_aed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "preferred_areas",
+              "displayName": "preferred_areas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "bedrooms",
+              "displayName": "bedrooms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "timeline",
+              "displayName": "timeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "financing",
+              "displayName": "financing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        176
+      ],
+      "id": "4d74c4e6-6e94-40ca-b8e5-b4d6e3c7e464",
+      "name": "Call '09-tool-save-lead'"
     }
   ],
   "pinData": {},
@@ -498,6 +616,17 @@
           }
         ]
       ]
+    },
+    "Call '09-tool-save-lead'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -505,7 +634,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "e3866d0a-9db1-411d-8498-2dd39de5cf52",
+  "versionId": "36c04261-4c2b-42c2-b7bd-0d23e66bc8d3",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
