@@ -642,6 +642,7 @@
         "method": "PATCH",
         "url": "=https://api.hubapi.com/crm/v3/objects/contacts/{{ $json.hubspot_contact_id }}",
         "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ properties: { bot_status: \"human_takeover\" } }) }}",
@@ -654,12 +655,18 @@
         288
       ],
       "id": "748acf9d-084d-4051-8759-cf501212ac71",
-      "name": "Sync status to HubSpot"
+      "name": "Sync status to HubSpot",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "JM0cRje4wiDiLnnY",
+          "name": "hubspot-bearer"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  (SELECT value FROM config WHERE key = 'agent_chat_id') AS agent_chat_id,\n  (SELECT details FROM customers WHERE chat_id = $1::bigint) AS details,\n  (SELECT string_agg(\n            CASE WHEN direction = 'in' THEN 'Customer: ' ELSE 'Bot: ' END || coalesce(text, ''),\n            E'\\n' ORDER BY created_at)\n     FROM (SELECT direction, text, created_at\n           FROM messages\n           WHERE chat_id = $1::bigint\n           ORDER BY created_at DESC\n           LIMIT 6) m) AS recent;",
+        "query": "SELECT\n  (SELECT value FROM config WHERE key = 'agent_chat_id') AS agent_chat_id,\n  (SELECT hubspot_contact_id FROM customers WHERE chat_id = $1::bigint) AS contact_id,\n  (SELECT details FROM customers WHERE chat_id = $1::bigint) AS details,\n  (SELECT string_agg(\n            CASE WHEN direction = 'in' THEN 'Customer: ' ELSE 'Bot: ' END || coalesce(text, ''),\n            E'\\n' ORDER BY created_at)\n     FROM (SELECT direction, text, created_at\n           FROM messages\n           WHERE chat_id = $1::bigint\n           ORDER BY created_at DESC\n           LIMIT 6) m) AS recent;",
         "options": {
           "queryReplacement": "={{ [ $('Telegram Trigger').first().json.message.chat.id ] }}"
         }
@@ -694,7 +701,7 @@
         704
       ],
       "id": "3d334459-a154-4541-8582-14dcbe51e6a2",
-      "name": "Send a text message1",
+      "name": "Notify agent",
       "webhookId": "41843aad-dfec-41bf-a592-b8ba8464130f",
       "credentials": {
         "telegramApi": {
@@ -702,6 +709,80 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "957eea7f-d772-4ef8-8ba6-bc2072ae073f",
+              "leftValue": "={{ !!$('Load handover context').first().json.contact_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1840,
+        704
+      ],
+      "id": "0a4d0916-468e-410a-8972-c261612c3ef2",
+      "name": "Has contact for note?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Load handover context').first().json;\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst details = ctx.details ? (typeof ctx.details === 'string' ? JSON.parse(ctx.details) : ctx.details) : {};\n\nconst detailLines = Object.entries(details).map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>') || 'None collected yet';\nconst recentLines = esc(ctx.recent).replace(/\\n/g, '<br>');\n\nreturn [{ json: { payload: {\n  properties: {\n    hs_timestamp: new Date().toISOString(),\n    hs_note_body: `<b>Bot handover to human agent</b><br><br><b>Details collected</b><br>${detailLines}<br><br><b>Recent messages</b><br>${recentLines}`\n  },\n  associations: [{\n    to: { id: ctx.contact_id },\n    types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]\n  }]\n} } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        608
+      ],
+      "id": "c603e918-d16c-4467-8239-f041381dd3cf",
+      "name": "Build note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2288,
+        608
+      ],
+      "id": "f1be3bb7-b06f-4831-9f5c-5e8eae3114e6",
+      "name": "Create handover note",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "JM0cRje4wiDiLnnY",
+          "name": "hubspot-bearer"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {},
@@ -948,7 +1029,40 @@
       "main": [
         [
           {
-            "node": "Send a text message1",
+            "node": "Notify agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify agent": {
+      "main": [
+        [
+          {
+            "node": "Has contact for note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has contact for note?": {
+      "main": [
+        [
+          {
+            "node": "Build note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build note": {
+      "main": [
+        [
+          {
+            "node": "Create handover note",
             "type": "main",
             "index": 0
           }
@@ -961,7 +1075,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "36ba89e8-70b6-4f0f-8700-fb92a5ed05c7",
+  "versionId": "8fa4d5cd-cca6-4a37-90e6-78ceef49e31d",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
