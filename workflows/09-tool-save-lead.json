@@ -118,13 +118,8 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "={{ JSON.stringify({ properties: $json.properties }) }}"
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: $json.properties }) }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -171,7 +166,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO customers (chat_id, hubspot_contact_id, details)\nVALUES ($1::bigint, $2, $3::jsonb)\nON CONFLICT (chat_id) DO UPDATE\nSET hubspot_contact_id = EXCLUDED.hubspot_contact_id,\n    details = EXCLUDED.details,\n    updated_at = now();",
+        "query": "INSERT INTO customers (chat_id, hubspot_contact_id, details)\nVALUES ($1::bigint, $2, $3::jsonb)\nON CONFLICT (chat_id) DO UPDATE\nSET hubspot_contact_id = EXCLUDED.hubspot_contact_id,\n    details = EXCLUDED.details,\n    updated_at = now()\nRETURNING hubspot_contact_id, hubspot_deal_id;",
         "options": {
           "queryReplacement": "={{ [ $('Prepare update').first().json.chat_id, $json.id, JSON.stringify($('Prepare update').first().json.details) ] }}"
         }
@@ -183,7 +178,7 @@
         -128
       ],
       "id": "fca1f59c-2b4f-4381-b803-df13eb8ea0de",
-      "name": "Execute a SQL query",
+      "name": "Save customer mapping",
       "credentials": {
         "postgres": {
           "id": "gODiF9cfszaS69lo",
@@ -193,16 +188,170 @@
     },
     {
       "parameters": {
+        "jsCode": "const STAGE_QUALIFYING = 'qualifiedtobuy';        // replace with your Qualifying stage ID\nconst STAGE_QUALIFIED = 'presentationscheduled';  // replace with your Qualified stage ID\nconst PIPELINE = 'default';                       // replace with your pipeline ID\n\nconst p = $('Prepare update').first().json;\nconst row = $input.first().json;\nconst d = p.details;\n\nconst hasDeal = !!row.hubspot_deal_id;\nconst ready = !!d.intent && !!d.budget_aed;\nconst qualified = p.missing.length === 0;\nconst label = { rent: 'Rent', buy: 'Buy', invest: 'Invest' }[d.intent] || 'Enquiry';\nconst name = p.properties.firstname || 'Customer';\n\nreturn [{ json: {\n  action: hasDeal ? 'update' : (ready ? 'create' : 'none'),\n  contact_id: row.hubspot_contact_id,\n  deal_id: row.hubspot_deal_id,\n  pipeline: PIPELINE,\n  stage: qualified ? STAGE_QUALIFIED : STAGE_QUALIFYING,\n  dealname: `${label} - ${d.preferred_areas || 'Dubai'} - ${name}`,\n  amount: d.budget_aed || ''\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -240
+      ],
+      "id": "922dda1b-88c5-41c6-b776-b18f5fdfd732",
+      "name": "Deal rules"
+    },
+    {
+      "parameters": {
         "jsCode": "const p = $('Prepare update').first().json;\nconst labels = {\n  intent: 'whether they want to buy, rent or invest',\n  budget_aed: 'maximum budget in AED',\n  timeline: 'timeline',\n  financing: 'financing (cash or mortgage)',\n  preferred_areas: 'preferred areas',\n  bedrooms: 'number of bedrooms'\n};\nconst missing = p.missing.map((k) => labels[k]);\n\nconst result = missing.length === 0\n  ? 'Saved. All details are collected. Tell the customer an agent will follow up.'\n  : `Saved. Still missing: ${missing.join(', ')}. Ask for ONE of these next, only if it fits the conversation.`;\n\nreturn [{ json: { result } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        672,
-        -128
+        1328,
+        -352
       ],
       "id": "61ca0cde-1369-4792-be38-01640b72293f",
-      "name": "Code in JavaScript"
+      "name": "Result for AI"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "8bca331c-f6a2-4011-ade4-dee3bee4b139"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "dd8d78ef-e50e-4711-b9da-6226036b9824",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        -320
+      ],
+      "id": "fd3d0a10-3527-4b1c-a64c-df51bf2ab799",
+      "name": "Deal action",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { dealname: $json.dealname, pipeline: $json.pipeline, dealstage: $json.stage, amount: $json.amount }, associations: [{ to: { id: $json.contact_id }, types: [{ associationCategory: \"HUBSPOT_DEFINED\", associationTypeId: 3 }] }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        -384
+      ],
+      "id": "883fded9-a335-4b2f-81a2-142752ea4aec",
+      "name": "Create deal",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "JM0cRje4wiDiLnnY",
+          "name": "hubspot-bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE customers SET hubspot_deal_id = $2, updated_at = now() WHERE chat_id = $1::bigint;",
+        "options": {
+          "queryReplacement": "={{ [ $('Prepare update').first().json.chat_id, $json.id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1152,
+        -544
+      ],
+      "id": "c7fa3416-6522-4e03-8809-462d437721f2",
+      "name": "Save deal id",
+      "credentials": {
+        "postgres": {
+          "id": "gODiF9cfszaS69lo",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/deals/{{ $json.deal_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: Object.assign({ dealstage: $json.stage }, $json.amount ? { amount: $json.amount } : {}) }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1104,
+        -240
+      ],
+      "id": "147e5833-7f0e-40f1-8233-c799bcd93228",
+      "name": "Update deal",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "JM0cRje4wiDiLnnY",
+          "name": "hubspot-bearer"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {
@@ -277,7 +426,7 @@
       "main": [
         [
           {
-            "node": "Execute a SQL query",
+            "node": "Save customer mapping",
             "type": "main",
             "index": 0
           }
@@ -288,18 +437,92 @@
       "main": [
         [
           {
-            "node": "Execute a SQL query",
+            "node": "Save customer mapping",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Execute a SQL query": {
+    "Save customer mapping": {
       "main": [
         [
           {
-            "node": "Code in JavaScript",
+            "node": "Deal rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deal rules": {
+      "main": [
+        [
+          {
+            "node": "Deal action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result for AI": {
+      "main": [
+        []
+      ]
+    },
+    "Deal action": {
+      "main": [
+        [
+          {
+            "node": "Create deal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update deal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result for AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create deal": {
+      "main": [
+        [
+          {
+            "node": "Save deal id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save deal id": {
+      "main": [
+        [
+          {
+            "node": "Result for AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update deal": {
+      "main": [
+        [
+          {
+            "node": "Result for AI",
             "type": "main",
             "index": 0
           }
@@ -312,7 +535,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "17c86f6b-13d1-4d98-ae65-42fcf1a2b895",
+  "versionId": "a4cf68fb-da0b-4b3a-9962-ae69c46cacfe",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
