@@ -1,0 +1,88 @@
+{
+  "name": "09b-tool-save-lead-stub",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "chat_id"
+            },
+            {
+              "name": "first_name"
+            },
+            {
+              "name": "intent"
+            },
+            {
+              "name": "budget_aed"
+            },
+            {
+              "name": "preferred_areas"
+            },
+            {
+              "name": "bedrooms"
+            },
+            {
+              "name": "timeline"
+            },
+            {
+              "name": "financing"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1ed5388e-c1a7-489f-9e51-84c5e6793f9b",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = $input.first().json;\nconst have = ['intent', 'budget_aed', 'preferred_areas', 'bedrooms', 'timeline', 'financing']\n  .filter((k) => i[k] && String(i[k]).trim());\nconst missing = ['timeline', 'financing'].filter((k) => !have.includes(k));\n\nreturn [{ json: { result: `Saved. Still missing: ${missing.join(', ') || 'nothing'}. Ask for ONE of these next, only if it fits the conversation.` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "f7086ef4-cdb2-4171-8b48-da8939addda4",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "wiWmQI6mLsglCsOg",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "026bf5d9-ae98-4731-9047-ffc1ff1bc2c5",
+  "meta": {
+    "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
+  },
+  "nodeGroups": [],
+  "id": "RYOJu146XZKl7b5f",
+  "tags": []
+}

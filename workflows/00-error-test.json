@@ -1,0 +1,63 @@
+{
+  "name": "00-error-test",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "error-test",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c840454b-834c-4abf-a8dd-5412f41fd0a5",
+      "name": "Webhook",
+      "webhookId": "47de8bd6-cec8-4162-8173-e1a36e55fc06"
+    },
+    {
+      "parameters": {
+        "jsCode": "throw new Error('test error from scratch workflow');"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "9936ed5a-e838-4e00-b0b2-4b8ecea59eb2",
+      "name": "Code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "wiWmQI6mLsglCsOg",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "ee15277b-e0e7-4508-89b5-7d14ffbee666",
+  "meta": {
+    "instanceId": "05fe9d9e3c01cae832014c7282629b286441ed111e358c3e80b18f1038641e4f"
+  },
+  "nodeGroups": [],
+  "id": "8DtrDwyuG5M6VW8k",
+  "tags": []
+}
